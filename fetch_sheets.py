@@ -31,8 +31,8 @@ STATE_SHEET_ID  = os.environ['STATE_SHEET_ID']
 MASTER_SHEET_ID = os.environ['MASTER_SHEET_ID']
 
 # Tab names inside each sheet — change if yours differ
-STATE_TAB   = os.environ.get('STATE_TAB',  'Sheet1')
-MASTER_TAB  = os.environ.get('MASTER_TAB', 'Sheet1')
+STATE_TAB   = os.environ.get('STATE_TAB',  'Personal Battery State Changes')
+MASTER_TAB  = os.environ.get('MASTER_TAB', 'SS Locs')
 
 OUTPUT_DIR  = Path('data')
 OUTPUT_DIR.mkdir(exist_ok=True)
