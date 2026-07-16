@@ -1,0 +1,1732 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Zeno · Availability Analyzer</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#EFF2F5;font-family:'Inter Tight','Inter',sans-serif;min-height:100vh}
+:root{--db:#003B49;--green:#16A34A;--amber:#D97706;--red:#DC2626;--grey:#6B7280;
+  --border:#E2E8F0;--muted:#64748B;--mono:'Space Mono',monospace}
+
+/* Layout */
+.topbar{background:var(--db);padding:14px 24px;display:flex;align-items:center;justify-content:space-between}
+.topbar-title{color:#fff;font-weight:800;font-size:15px;letter-spacing:2px}
+.topbar-sub{color:rgba(255,255,255,.55);font-size:10px;font-family:var(--mono)}
+.body-wrap{display:flex;height:calc(100vh - 52px);overflow:hidden}
+.sidebar{width:260px;flex-shrink:0;background:#fff;border-right:1px solid var(--border);
+  overflow-y:auto;display:flex;flex-direction:column}
+.main{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:16px}
+
+/* Sidebar sections */
+.sb-section{padding:12px 14px;border-bottom:1px solid #F1F5F9}
+.sb-title{font-size:8px;font-family:var(--mono);text-transform:uppercase;letter-spacing:1.5px;
+  color:var(--muted);margin-bottom:8px;font-weight:700}
+.load-row{display:flex;align-items:center;gap:8px;padding:8px 10px;background:#F8FAFC;
+  border:1px dashed #CBD5E1;border-radius:8px;cursor:pointer;margin-bottom:6px;transition:border-color .15s}
+.load-row:hover{border-color:var(--db)}
+.load-row input{display:none}
+.load-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.load-label{font-size:9px;font-family:var(--mono);color:var(--muted);flex:1}
+.load-status{font-size:8px;font-family:var(--mono)}
+.load-status.ok{color:var(--green)}.load-status.err{color:var(--red)}
+.btn-analyze{width:100%;background:var(--db);color:#fff;border:none;padding:9px;
+  border-radius:6px;font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:1px;
+  text-transform:uppercase;cursor:pointer;transition:background .15s;margin-top:6px}
+.btn-analyze:hover{background:#005a6e}
+.btn-analyze:disabled{background:#CBD5E1;cursor:not-allowed}
+
+/* Filters */
+.filter-search{width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;
+  font-size:9px;font-family:var(--mono);outline:none;margin-bottom:5px}
+.filter-search:focus{border-color:var(--db)}
+.filter-list{max-height:140px;overflow-y:auto;display:flex;flex-direction:column;gap:1px}
+.filter-item{display:flex;align-items:center;gap:6px;padding:4px 5px;border-radius:4px;cursor:pointer}
+.filter-item:hover{background:#F8FAFC}
+.filter-item input{accent-color:var(--db);cursor:pointer}
+.filter-item label{font-size:9px;font-family:var(--mono);color:#1a2332;cursor:pointer;flex:1}
+.filter-item .city-tag{font-size:7px;color:var(--muted)}
+.filter-actions{display:flex;gap:4px;margin-top:5px}
+.fa-btn{flex:1;font-size:8px;font-family:var(--mono);padding:3px;border-radius:3px;
+  border:1px solid var(--border);background:#F8FAFC;color:var(--muted);cursor:pointer}
+.fa-btn:hover{border-color:var(--db);color:var(--db)}
+.fa-btn.primary{background:var(--db);color:#fff;border-color:var(--db)}
+
+/* Peak mode */
+.peak-seg{display:flex;gap:0;border:1px solid var(--border);border-radius:5px;overflow:hidden;margin-bottom:8px}
+.peak-btn{flex:1;font-size:8px;font-family:var(--mono);padding:5px 3px;border:none;
+  background:#F8FAFC;color:var(--muted);cursor:pointer;transition:all .15s;text-align:center}
+.peak-btn.on{background:var(--db);color:#fff;font-weight:700}
+.peak-inputs{display:flex;align-items:center;gap:4px;font-size:8px;font-family:var(--mono);color:var(--muted)}
+.peak-input{width:56px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;
+  font-size:8px;font-family:var(--mono);color:#1a2332}
+
+/* Date range */
+.date-row{display:flex;align-items:center;gap:4px;font-size:8px;font-family:var(--mono);color:var(--muted)}
+.date-input{width:90px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;
+  font-size:8px;font-family:var(--mono)}
+.btn-apply{background:var(--db);color:#fff;border:none;padding:4px 9px;border-radius:4px;
+  font-size:8px;font-family:var(--mono);cursor:pointer;margin-top:5px}
+
+/* Date slider */
+.date-slider-wrap{position:relative;height:28px;margin:10px 2px 4px}
+.date-slider-track{position:absolute;top:50%;left:0;right:0;height:4px;background:#E2E8F0;border-radius:2px;transform:translateY(-50%)}
+.date-slider-fill{position:absolute;top:50%;height:4px;background:var(--db);border-radius:2px;transform:translateY(-50%);pointer-events:none}
+.date-slider-thumb{position:absolute;top:50%;width:14px;height:14px;background:#fff;border:2px solid var(--db);border-radius:50%;transform:translate(-50%,-50%);cursor:pointer;z-index:2;transition:box-shadow .15s}
+.date-slider-thumb:hover,.date-slider-thumb:active{box-shadow:0 0 0 4px rgba(0,59,73,.15)}
+.date-slider-labels{display:flex;justify-content:space-between;font-size:7px;font-family:var(--mono);color:var(--muted);margin-top:2px}
+.stats-row{display:flex;gap:8px;flex-wrap:wrap}
+.stat-card{background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px 14px;flex:1;min-width:120px}
+.stat-val{font-size:22px;font-weight:700;font-family:var(--mono)}
+.stat-lbl{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-top:2px;font-family:var(--mono)}
+.stat-val.green{color:var(--green)}.stat-val.amber{color:var(--amber)}
+.stat-val.red{color:var(--red)}.stat-val.grey{color:var(--grey)}
+
+/* Charts */
+.chart-card{background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px}
+.chart-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.chart-title{font-size:11px;font-weight:700;color:var(--db)}
+.chart-actions{display:flex;gap:6px}
+.dl-btn{font-size:8px;font-family:var(--mono);padding:3px 9px;border-radius:4px;border:none;cursor:pointer}
+.dl-btn.light{background:#E2E8F0;color:#1a2332}
+.dl-btn.dark{background:var(--db);color:#fff}
+.dl-btn:hover{opacity:.85}
+.chart-canvas-wrap{position:relative}
+.avail-legend{display:flex;justify-content:center;gap:16px;margin-top:8px;flex-wrap:wrap}
+.leg-item{display:flex;align-items:center;gap:5px;font-size:9px;font-family:var(--mono);color:var(--muted)}
+.leg-dot{width:10px;height:10px;border-radius:2px;flex-shrink:0}
+
+/* Tab switcher */
+.tab-row{display:flex;gap:4px;margin-bottom:10px}
+.tab-btn{font-size:9px;font-family:var(--mono);padding:5px 12px;border-radius:5px;
+  border:1px solid var(--border);background:#F8FAFC;color:var(--muted);cursor:pointer}
+.tab-btn.on{background:var(--db);color:#fff;border-color:var(--db)}
+
+/* Table */
+.tbl-wrap{background:#fff;border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.stn-table{width:100%;border-collapse:collapse;font-size:9px;font-family:var(--mono)}
+.stn-table th{background:#F8FAFC;padding:8px 10px;text-align:left;color:var(--muted);
+  font-size:7px;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;white-space:nowrap;border-bottom:1px solid var(--border)}
+.stn-table th:hover{color:var(--db)}
+.stn-table td{padding:7px 10px;border-bottom:1px solid #F1F5F9;white-space:nowrap}
+.stn-table tr:hover td{background:#FAFCFF}
+.health-ex{color:var(--green);font-weight:700}.health-mo{color:var(--amber);font-weight:700}
+.health-at{color:var(--red);font-weight:700}
+.tbl-actions{display:flex;gap:6px;padding:8px 10px;border-bottom:1px solid var(--border);background:#F8FAFC}
+.sort-arrow{opacity:.4}
+.sorted .sort-arrow{opacity:1;color:var(--db)}
+
+/* Empty state */
+.empty{text-align:center;padding:40px;font-family:var(--mono);font-size:10px;color:var(--muted)}
+
+/* Avail colour key */
+.avail-key-wrap{display:flex;align-items:center;gap:8px;font-size:8px;font-family:var(--mono);color:var(--muted)}
+.avail-key-bar{flex:1;height:8px;border-radius:4px;background:linear-gradient(to right,#991B1B,#DC2626,#EA580C,#D97706,#65A30D,#15803D)}
+.avail-key-labels{display:flex;justify-content:space-between;font-size:7px;margin-top:2px}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div>
+    <div class="topbar-title">ZENO · AVAILABILITY ANALYZER</div>
+    <div class="topbar-sub">Conservative fill · Duration-weighted · Peak/Off-peak</div>
+  </div>
+  <div id="topStatus" style="font-family:var(--mono);font-size:9px;color:rgba(255,255,255,.6)">Load files to begin</div>
+</div>
+
+<div class="body-wrap">
+<!-- ── SIDEBAR ── -->
+<div class="sidebar">
+
+  <div class="sb-section">
+    <div class="sb-title">Data Files</div>
+    <div id="autoStatus" style="display:none;padding:8px 10px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:6px;margin-bottom:8px">
+      <div style="font-size:8px;font-family:var(--mono);color:#15803D;font-weight:700">● LIVE</div>
+      <div id="autoStatusText" style="font-size:8px;font-family:var(--mono);color:#166534;margin-top:2px"></div>
+    </div>
+    <div id="autoError" style="display:none;padding:8px 10px;background:#FEF2F2;border:1px solid #FECACA;border-radius:6px;margin-bottom:8px">
+      <div style="font-size:8px;font-family:var(--mono);color:#DC2626;font-weight:700">⚠ Auto-load failed</div>
+      <div style="font-size:8px;font-family:var(--mono);color:#991B1B;margin-top:2px">Upload files manually below</div>
+    </div>
+    <label class="load-row">
+      <div class="load-dot" style="background:var(--db)"></div>
+      <span class="load-label">State Changes Log</span>
+      <input type="file" id="stateFile" accept=".csv,.xlsx,.xls">
+    </label>
+    <div id="stateStatus" class="load-status"></div>
+    <label class="load-row" style="margin-top:4px">
+      <div class="load-dot" style="background:var(--green)"></div>
+      <span class="load-label">Station Master (SS Code, Name, City)</span>
+      <input type="file" id="masterFile" accept=".csv,.xlsx,.xls">
+    </label>
+    <div id="masterStatus" class="load-status"></div>
+    <button class="btn-analyze" id="btnAnalyze" disabled>ANALYZE</button>
+  </div>
+
+  <div class="sb-section">
+    <div class="sb-title">Date Range</div>
+    <!-- Dual-thumb slider -->
+    <div class="date-slider-wrap" id="dateSliderWrap">
+      <div class="date-slider-track"></div>
+      <div class="date-slider-fill" id="sliderFill"></div>
+      <div class="date-slider-thumb" id="thumbStart" onmousedown="sliderDrag(event,'start')" ontouchstart="sliderDrag(event,'start')"></div>
+      <div class="date-slider-thumb" id="thumbEnd"   onmousedown="sliderDrag(event,'end')"   ontouchstart="sliderDrag(event,'end')"></div>
+    </div>
+    <div class="date-slider-labels">
+      <span id="sliderMinLabel">—</span>
+      <span id="sliderMaxLabel">—</span>
+    </div>
+    <div class="date-row" style="margin-top:8px">
+      <input type="date" class="date-input" id="startDate" placeholder="YYYY-MM-DD">
+      <span>–</span>
+      <input type="date" class="date-input" id="endDate" placeholder="YYYY-MM-DD">
+    </div>
+    <button class="btn-apply" id="btnApplyDate" style="margin-top:5px">Apply</button>
+    <button class="btn-apply" id="btnClearDate" style="background:#64748B;margin-top:3px">Clear (all dates)</button>
+  </div>
+
+  <div class="sb-section">
+    <div class="sb-title">Peak Mode</div>
+    <div class="peak-seg">
+      <div class="peak-btn on" id="pkTotal"   onclick="setPeakMode('total')">Total</div>
+      <div class="peak-btn"    id="pkPeak"    onclick="setPeakMode('peak')">Peak</div>
+      <div class="peak-btn"    id="pkOffPeak" onclick="setPeakMode('offpeak')">Off-peak</div>
+    </div>
+    <div class="peak-inputs">
+      <input type="time" class="peak-input" id="peakStart" value="06:00">
+      <span>–</span>
+      <input type="time" class="peak-input" id="peakEnd" value="18:00">
+    </div>
+    <button class="btn-apply" id="btnApplyPeak">Set window</button>
+  </div>
+
+  <div class="sb-section">
+    <div class="sb-title">City</div>
+    <div class="filter-list" id="cityList"></div>
+    <div class="filter-actions">
+      <div class="fa-btn" onclick="clearCities()">Clear</div>
+      <div class="fa-btn primary" onclick="selectAllCities()">All</div>
+    </div>
+  </div>
+
+  <div class="sb-section">
+    <div class="sb-title">Stations</div>
+    <input class="filter-search" id="stationSearch" placeholder="Search…" oninput="filterStationList(this.value)">
+    <div class="filter-list" id="stationList"></div>
+    <div class="filter-actions">
+      <div class="fa-btn" onclick="clearStations()">Clear</div>
+      <div class="fa-btn primary" onclick="selectAllStations()">All</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── MAIN ── -->
+<div class="main" id="mainArea">
+  <div class="empty" id="emptyState">
+    Load the State Changes log and Station Master file, then click ANALYZE.
+  </div>
+</div>
+</div>
+
+<script>
+Chart.register(ChartDataLabels);
+
+// ══════════════════════════════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════════════════════════════
+const S = {
+  rawEvents: [],          // [{station, state, ts}] sorted by ts per station
+  stationMap: new Map(),  // code -> {name, city}
+  allStations: [],        // sorted station codes
+  selectedStations: new Set(),
+  selectedCities: new Set(),
+  peakMode: 'total',
+  peakStart: '06:00',
+  peakEnd: '18:00',
+  startDate: null,
+  endDate: null,
+  dataMinDate: null,   // earliest event date across all stations
+  dataMaxDate: null,   // latest event date across all stations
+  dataSummary: '',     // static summary string set once on processFiles
+  histMode: 'hourly',   // 'hourly' | 'daily' | 'weekly' | 'monthly'
+  perStSort: 'green',   // 'green' | 'amber' | 'red' | 'grey'
+  perStSortDir: 'desc', // 'desc' | 'asc'
+  perStColors: new Set(['green','amber','red','grey']),
+  sortCol: 'green', sortDir: -1,
+  charts: {},
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FILE READING
+// ══════════════════════════════════════════════════════════════════════════════
+function readFile(file){
+  return new Promise((res,rej)=>{
+    const ext=file.name.split('.').pop().toLowerCase();
+    if(ext==='csv'||ext==='tsv'){
+      const r=new FileReader();
+      r.onload=e=>{
+        const txt=e.target.result;
+        const lines=txt.split(/\r?\n/).filter(l=>l.trim());
+        const h=lines[0].split(/[,\t]/).map(x=>x.trim());
+        const rows=[];
+        for(let i=1;i<lines.length;i++){
+          const vals=lines[i].split(/[,\t]/);
+          const obj={};
+          h.forEach((col,idx)=>{obj[col]=idx<vals.length?vals[idx].trim():'';});
+          rows.push(obj);
+        }
+        res(rows);
+      };
+      r.onerror=rej; r.readAsText(file);
+    } else {
+      const r=new FileReader();
+      r.onload=e=>{
+        const data=new Uint8Array(e.target.result);
+        // Don't use cellDates:true — it produces UTC Date objects that
+        // shift by timezone offset on non-UTC systems (Mac, Linux).
+        // Instead read raw values and let parseTS handle all string formats.
+        const wb=XLSX.read(data,{type:'array',cellDates:false,raw:false});
+        const sheet=wb.Sheets[wb.SheetNames[0]];
+        const rows=XLSX.utils.sheet_to_json(sheet,{defval:'',raw:false});
+        res(rows);
+      };
+      r.onerror=rej; r.readAsArrayBuffer(file);
+    }
+  });
+}
+
+function parseTS(v){
+  if(!v) return null;
+
+  // Already a Date object (SheetJS cellDates:true, or Date instance)
+  if(v instanceof Date) return isNaN(v.getTime())?null:v;
+
+  // Excel numeric serial (number type from SheetJS without cellDates)
+  if(typeof v==='number'){
+    // Excel epoch: Dec 30 1899. Multiply days by ms-per-day.
+    const ms=(v-25569)*86400000; // 25569 = days from 1900-01-01 to 1970-01-01
+    const d=new Date(ms);
+    return isNaN(d.getTime())?null:d;
+  }
+
+  const s=String(v).trim().replace(/ /g,' '); // strip non-breaking spaces
+
+  // Format: 2026-05-25 08:29:01  OR  2026-05-25T08:29:01
+  let m=s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
+  if(m) return new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+m[6]);
+
+  // Format: 25/05/2026 08:29:01  (DD/MM/YYYY)
+  m=s.match(/^(\d{2})\/(\d{2})\/(\d{4})[T ](\d{2}):(\d{2}):(\d{2})/);
+  if(m) return new Date(+m[3],+m[2]-1,+m[1],+m[4],+m[5],+m[6]);
+
+  // Format: 05/25/2026 08:29:01  (MM/DD/YYYY — US format)
+  m=s.match(/^(\d{2})\/(\d{2})\/(\d{4})\s(\d{2}):(\d{2}):(\d{2})/);
+  if(m) return new Date(+m[3],+m[1]-1,+m[2],+m[4],+m[5],+m[6]);
+
+  // Format: 2026-05-25 (date only — treat as midnight local)
+  m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(m) return new Date(+m[1],+m[2]-1,+m[3],0,0,0);
+
+  // Format: ISO 8601 with Z or offset — convert to local
+  // e.g. 2026-05-25T08:29:01Z or 2026-05-25T08:29:01+03:00
+  m=s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(Z|[+-]\d{2}:\d{2})/);
+  if(m){
+    const d=new Date(s); // ISO with timezone is safe in all browsers
+    return isNaN(d.getTime())?null:d;
+  }
+
+  // Last resort: try native parse (works for most formats on Chrome/Firefox)
+  // Replace space with T first for Safari compatibility
+  const safe=s.replace(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/,'$1T$2');
+  const d=new Date(safe);
+  return isNaN(d.getTime())?null:d;
+}
+
+let loadedState=null, loadedMaster=null;
+
+// ══════════════════════════════════════════════════════════════════════════════
+// AUTO-FETCH — loads CSVs from /data/ when hosted on GitHub Pages
+// Falls back silently to manual upload if files not found
+// ══════════════════════════════════════════════════════════════════════════════
+function parseCsvText(txt){
+  const lines=txt.split(/\r?\n/).filter(l=>l.trim());
+  if(!lines.length) return [];
+  const h=lines[0].split(/[,\t]/).map(x=>x.trim().replace(/^"|"$/g,''));
+  const rows=[];
+  for(let i=1;i<lines.length;i++){
+    // Handle quoted fields with commas inside
+    const vals=[]; let cur='', inQ=false;
+    for(const ch of lines[i]+','){
+      if(ch==='"'){inQ=!inQ;}
+      else if(ch===','&&!inQ){vals.push(cur.trim());cur='';}
+      else cur+=ch;
+    }
+    if(vals.length===h.length||vals.some(v=>v)){
+      const obj={};
+      h.forEach((col,idx)=>{obj[col]=idx<vals.length?vals[idx].replace(/^"|"$/g,'').trim():'';});
+      rows.push(obj);
+    }
+  }
+  return rows;
+}
+
+async function autoFetch(){
+  // Only attempt if running from a real server (not file://)
+  if(location.protocol==='file:') return;
+
+  try{
+    const [stateRes, masterRes] = await Promise.all([
+      fetch('data/state_changes.csv?t='+Date.now()),
+      fetch('data/station_master.csv?t='+Date.now())
+    ]);
+
+    if(!stateRes.ok||!masterRes.ok) throw new Error('CSV files not found');
+
+    const [stateTxt, masterTxt] = await Promise.all([
+      stateRes.text(), masterRes.text()
+    ]);
+
+    loadedState  = parseCsvText(stateTxt);
+    loadedMaster = parseCsvText(masterTxt);
+
+    if(!loadedState.length||!loadedMaster.length) throw new Error('Empty CSV');
+
+    // Update sidebar status
+    const now=new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+    document.getElementById('autoStatus').style.display='block';
+    document.getElementById('autoStatusText').textContent=
+      `${loadedState.length.toLocaleString()} events · ${loadedMaster.length} stations · ${now}`;
+    document.getElementById('stateStatus').className='load-status ok';
+    document.getElementById('stateStatus').textContent=`✓ ${loadedState.length.toLocaleString()} rows (auto)`;
+    document.getElementById('masterStatus').className='load-status ok';
+    document.getElementById('masterStatus').textContent=`✓ ${loadedMaster.length} stations (auto)`;
+
+    // Update topbar last-refreshed
+    const topSub=document.querySelector('.topbar-sub');
+    if(topSub) topSub.textContent=`Live · last refreshed ${now}`;
+
+    processFiles();
+
+  }catch(err){
+    console.log('Auto-fetch skipped or failed:',err.message);
+    // Show error only if we expected files (i.e. not first load on file://)
+    if(location.protocol!=='file:'){
+      document.getElementById('autoError').style.display='block';
+    }
+  }
+}
+
+// Auto-fetch on load, then every 10 minutes
+window.addEventListener('load',()=>{
+  autoFetch();
+  setInterval(autoFetch, 10*60*1000);
+});
+
+document.getElementById('stateFile').onchange=async e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const st=document.getElementById('stateStatus');
+  try{
+    loadedState=await readFile(f);
+    st.className='load-status ok';
+    st.textContent=`✓ ${loadedState.length.toLocaleString()} rows`;
+    checkReady();
+  }catch(err){st.className='load-status err';st.textContent='✗ Read failed';}
+};
+
+document.getElementById('masterFile').onchange=async e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const st=document.getElementById('masterStatus');
+  try{
+    loadedMaster=await readFile(f);
+    st.className='load-status ok';
+    st.textContent=`✓ ${loadedMaster.length} stations`;
+    checkReady();
+  }catch(err){st.className='load-status err';st.textContent='✗ Read failed';}
+};
+
+function checkReady(){
+  document.getElementById('btnAnalyze').disabled=!(loadedState&&loadedMaster);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CORE AVAILABILITY COMPUTATION — exact Python logic
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * computeWindow(events, windowStart, windowEnd)
+ *
+ * events: array of {state, ts} for ONE station, sorted by ts ascending
+ * windowStart, windowEnd: Date objects
+ *
+ * Returns {hasData, green, amber, red, grey, totalSec}
+ * where green+amber+red+grey = 100 (if hasData)
+ *
+ * Algorithm:
+ * 1. Find the most recent event BEFORE windowStart (conservative fill)
+ *    — this is the state the station was in when the window opened
+ * 2. Collect all events INSIDE the window
+ * 3. Build timeline: [clamped pre-event, ...window events, sentinel at windowEnd]
+ * 4. Walk consecutive pairs, accumulate seconds per state
+ * 5. Express as % of total tracked seconds
+ */
+function computeWindow(events, windowStart, windowEnd){
+  const wS=windowStart.getTime(), wE=windowEnd.getTime();
+  if(wE<=wS) return {hasData:false,green:0,amber:0,red:0,grey:0,totalSec:0};
+
+  // Step 1: find last event before window
+  let beforeEvent=null;
+  for(let i=events.length-1;i>=0;i--){
+    if(events[i].ts.getTime()<wS){beforeEvent=events[i];break;}
+  }
+
+  // Step 2: events inside window
+  const inside=events.filter(e=>e.ts.getTime()>=wS&&e.ts.getTime()<wE);
+
+  // Step 3: no data at all
+  if(!beforeEvent&&inside.length===0){
+    return {hasData:false,green:0,amber:0,red:0,grey:0,totalSec:0};
+  }
+
+  // Step 4: build timeline
+  // Pre-window event is clamped to window start
+  const timeline=[];
+  if(beforeEvent) timeline.push({t:wS, state:beforeEvent.state});
+  for(const ev of inside) timeline.push({t:ev.ts.getTime(), state:ev.state});
+  timeline.push({t:wE, state:null}); // sentinel
+
+  // Step 5: accumulate seconds per state
+  const dur={Green:0,Amber:0,Red:0,Grey:0};
+  let cur=timeline[0].state;
+  for(let i=0;i<timeline.length-1;i++){
+    const segStart=timeline[i].t;
+    const segEnd=timeline[i+1].t;
+    if(segEnd>segStart&&cur&&dur[cur]!==undefined){
+      dur[cur]+=(segEnd-segStart)/1000;
+    }
+    if(i+1<timeline.length-1) cur=timeline[i+1].state;
+  }
+
+  const total=dur.Green+dur.Amber+dur.Red+dur.Grey;
+  if(total===0) return {hasData:false,green:0,amber:0,red:0,grey:0,totalSec:0};
+
+  return {
+    hasData:true,
+    green:dur.Green/total*100,
+    amber:dur.Amber/total*100,
+    red:dur.Red/total*100,
+    grey:dur.Grey/total*100,
+    totalSec:total,
+  };
+}
+
+/**
+ * computeHourlyProfiles(events, days)
+ *
+ * For each of the 24 hours, compute the average availability
+ * across all given days using computeWindow for each 1-hour slot.
+ *
+ * Returns {green:[24], amber:[24], red:[24], grey:[24]}
+ * Each element is the AVERAGE percentage for that hour across valid days.
+ * Hours with no data across any day are 0.
+ *
+ * NOTE: conservative fill means even if a day has no events,
+ * the pre-window lookup will find the last event before that day
+ * and carry it forward — so an hour shows the correct state.
+ */
+function computeHourlyProfiles(events, days){
+  const g=new Array(24).fill(0), a=new Array(24).fill(0);
+  const r=new Array(24).fill(0), gr=new Array(24).fill(0);
+  const cnt=new Array(24).fill(0);
+
+  for(const day of days){
+    const[yr,mo,dy]=day.split('-').map(Number);
+    for(let h=0;h<24;h++){
+      // Use LOCAL time constructor — avoids UTC timezone shift
+      const ws=new Date(yr,mo-1,dy,h,0,0);
+      const we=new Date(yr,mo-1,dy,h,59,59);
+      const res=computeWindow(events,ws,we);
+      if(res.hasData){
+        g[h]+=res.green; a[h]+=res.amber;
+        r[h]+=res.red;   gr[h]+=res.grey;
+        cnt[h]++;
+      }
+    }
+  }
+
+  for(let h=0;h<24;h++){
+    if(cnt[h]>0){
+      g[h]/=cnt[h]; a[h]/=cnt[h]; r[h]/=cnt[h]; gr[h]/=cnt[h];
+      // Renormalise to 100 — corrects rounding drift
+      const tot=g[h]+a[h]+r[h]+gr[h]||1;
+      g[h]=g[h]/tot*100; a[h]=a[h]/tot*100;
+      r[h]=r[h]/tot*100; gr[h]=gr[h]/tot*100;
+    }
+  }
+
+  return {green:g,amber:a,red:r,grey:gr};
+}
+
+/**
+ * getPeakHours() → {peakH: Set, offH: Set}
+ * Returns which hours 0-23 are peak and which are off-peak.
+ */
+function getPeakHours(){
+  // Robust time parsing — handles HH:MM, H:MM, HH:MM AM/PM, and empty string
+  function parseHour(str){
+    if(!str) return null;
+    const s=String(str).trim();
+    // HH:MM or H:MM
+    const m24=s.match(/^(\d{1,2}):(\d{2})(?:\s*(AM|PM))?$/i);
+    if(m24){
+      let h=parseInt(m24[1]);
+      const ampm=(m24[3]||'').toUpperCase();
+      if(ampm==='PM'&&h<12) h+=12;
+      if(ampm==='AM'&&h===12) h=0;
+      return h;
+    }
+    // Just a number
+    const n=parseInt(s);
+    return isNaN(n)?null:Math.min(23,Math.max(0,n));
+  }
+  const sh=parseHour(S.peakStart)??6;   // default 06:00
+  const eh=parseHour(S.peakEnd)??18;    // default 18:00
+  const peakH=new Set(), offH=new Set();
+  for(let h=0;h<24;h++){
+    if(h>=sh&&h<eh) peakH.add(h); else offH.add(h);
+  }
+  return {peakH,offH};
+}
+
+/**
+ * computeStationAvail(events, days, peakMode)
+ *
+ * Returns the final {green,amber,red,grey} for a station over the given days.
+ *
+ * TOTAL MODE:
+ *   For each day, compute the full 24-hour window.
+ *   Weighted average across days using totalSec as weight.
+ *   This is correct because days with more tracked time contribute more.
+ *
+ * PEAK / OFF-PEAK MODE:
+ *   Compute hourly profiles for all days (24 separate windows).
+ *   Average only the peak or off-peak hours.
+ *   Renormalise so Green+Amber+Red+Grey = 100.
+ *   This ensures peak figures are relative to peak time only,
+ *   not diluted by off-peak hours.
+ */
+function computeStationAvail(events, days, peakMode){
+  if(peakMode==='total'){
+    let wG=0,wA=0,wR=0,wGr=0,wTot=0;
+    for(const day of days){
+      const [yr,mo,dy]=day.split('-').map(Number);
+      const ws=new Date(yr,mo-1,dy,0,0,0);
+      const we=new Date(yr,mo-1,dy,23,59,59);
+      const res=computeWindow(events,ws,we);
+      if(res.hasData){
+        wG +=res.green *res.totalSec;
+        wA +=res.amber *res.totalSec;
+        wR +=res.red   *res.totalSec;
+        wGr+=res.grey  *res.totalSec;
+        wTot+=res.totalSec;
+      }
+    }
+    if(wTot===0) return null;
+    return {green:wG/wTot, amber:wA/wTot, red:wR/wTot, grey:wGr/wTot, totalSec:wTot};
+  } else {
+    const prof=computeHourlyProfiles(events,days);
+    const {peakH,offH}=getPeakHours();
+    const hours=[...(peakMode==='peak'?peakH:offH)];
+    if(!hours.length) return null;
+    let sG=0,sA=0,sR=0,sGr=0,validH=0;
+    for(const h of hours){
+      const tot=prof.green[h]+prof.amber[h]+prof.red[h]+prof.grey[h];
+      if(tot>0){sG+=prof.green[h];sA+=prof.amber[h];sR+=prof.red[h];sGr+=prof.grey[h];validH++;}
+    }
+    if(validH===0) return null;
+    sG/=validH; sA/=validH; sR/=validH; sGr/=validH;
+    const tot=sG+sA+sR+sGr||1;
+    return {green:sG/tot*100, amber:sA/tot*100, red:sR/tot*100, grey:sGr/tot*100, totalSec:validH};
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PROCESS — parse files and build per-station event arrays
+// ══════════════════════════════════════════════════════════════════════════════
+function processFiles(){
+  // Build station master
+  S.stationMap.clear();
+  const VALID_STATES=new Set(['green','amber','red','grey']);
+
+  if(loadedMaster.length>0){
+    console.log('Master file columns detected:', Object.keys(loadedMaster[0]));
+  }
+  for(const row of loadedMaster){
+    const keys=Object.keys(row);
+    // Try explicit names first, then positional fallback
+    const code=(
+      row['SS Code']||row['ss code']||row['SS_Code']||row['ss_code']||
+      row['Station Code']||row['station_code']||row['code']||row['Code']||
+      row[keys[0]]||''  // first column as fallback
+    ).trim().toUpperCase();
+    const name=(
+      row['Station Name']||row['station name']||row['station_name']||
+      row['Name']||row['name']||row[keys[1]]||code
+    ).trim();
+    const city=(
+      row['City']||row['city']||row[keys[2]]||'Unknown'
+    ).trim();
+    if(code) S.stationMap.set(code,{name,city});
+  }
+
+  // Parse events — keep ALL events (not filtered by date here)
+  // Date filter is applied at computation time so conservative fill works
+  const evByStation=new Map();
+  let skipped=0;
+  // Debug: show first row keys to diagnose column issues
+  if(loadedState.length>0){
+    const sampleKeys=Object.keys(loadedState[0]);
+    console.log('State file columns detected:', sampleKeys);
+  }
+
+  for(const row of loadedState){
+    // Try all known column name variants for station code
+    const code=(
+      row['swap_station_serial_id']||row['Swap_Station_Serial_Id']||
+      row['station_id']||row['Station_Id']||
+      row['SS Code']||row['ss code']||row['SS_Code']||
+      row['station']||row['Station']||
+      // Try first column if nothing matches
+      row[Object.keys(row)[0]]||''
+    ).trim().toUpperCase();
+    if(!code) continue;
+
+    // If master loaded, filter to master stations; if not, accept all
+    if(S.stationMap.size>0&&!S.stationMap.has(code)){skipped++;continue;}
+
+    // Try all known column name variants for state
+    const stateRaw=(
+      row['state']||row['State']||row['availability_state']||''
+    ).trim().toLowerCase();
+    if(!VALID_STATES.has(stateRaw)) continue;
+
+    // Try all known column name variants for timestamp
+    const tsRaw=(
+      row['state_change_timestamp']||row['State_Change_Timestamp']||
+      row['timestamp']||row['Timestamp']||row['ts']||row['datetime']||''
+    );
+    const ts=parseTS(tsRaw);
+    if(!ts) continue;
+
+    const state=stateRaw.charAt(0).toUpperCase()+stateRaw.slice(1);
+    if(!evByStation.has(code)) evByStation.set(code,[]);
+    evByStation.get(code).push({state,ts});
+  }
+
+  // Sort each station's events by timestamp ascending
+  for(const arr of evByStation.values()) arr.sort((a,b)=>a.ts-b.ts);
+  S.rawEvents=evByStation;
+
+  // All stations that have events
+  S.allStations=[...evByStation.keys()].sort();
+  const totalEvents=[...evByStation.values()].reduce((a,b)=>a+b.length,0);
+  const skipMsg=skipped>0?` · ${skipped} skipped (not in master)`:' · 0 skipped';
+
+  // Compute overall data date bounds (never changes unless files reload)
+  let minTs=Infinity, maxTs=-Infinity;
+  for(const arr of evByStation.values()){
+    if(arr.length){
+      minTs=Math.min(minTs,arr[0].ts.getTime());
+      maxTs=Math.max(maxTs,arr[arr.length-1].ts.getTime());
+    }
+  }
+  S.dataMinDate=isFinite(minTs)?new Date(minTs):null;
+  S.dataMaxDate=isFinite(maxTs)?new Date(maxTs):null;
+
+  // Static summary shown in topbar — includes date range of the data
+  const fmtDate=d=>d?d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}):'?';
+  const dateRange=S.dataMinDate&&S.dataMaxDate?` · ${fmtDate(S.dataMinDate)} – ${fmtDate(S.dataMaxDate)}`:'';
+  S.dataSummary=`${S.allStations.length} stations · ${totalEvents.toLocaleString()} events${skipMsg}${dateRange}`;
+  document.getElementById('topStatus').textContent=S.dataSummary;
+
+  // Initialise slider to full data range
+  initDateSlider();
+
+  if(S.allStations.length===0){
+    document.getElementById('mainArea').innerHTML=`<div class="empty">
+      <div style="font-size:24px;margin-bottom:12px">⚠️</div>
+      <div style="font-size:11px;margin-bottom:8px">No stations matched between state log and station master.</div>
+      <div style="font-size:9px;color:var(--muted);margin-bottom:4px">
+        State log station codes: ${[...new Set(loadedState.slice(0,5).map(r=>
+          (r['swap_station_serial_id']||r['station_id']||r[Object.keys(r)[0]]||'?').trim().toUpperCase()
+        ))].join(', ')} ...
+      </div>
+      <div style="font-size:9px;color:var(--muted)">
+        Station master codes: ${[...S.stationMap.keys()].slice(0,5).join(', ')} ...
+      </div>
+      <div style="font-size:9px;color:var(--muted);margin-top:8px">
+        Check that station codes match between both files (e.g. BS0024 vs bs0024 is fine — both get uppercased).
+        If your master only covers some stations, events for other stations are skipped.
+      </div>
+    </div>`;
+    return;
+  }
+
+  // Build filter UI
+  buildCityFilter();
+  buildStationFilter();
+
+  // Select all by default
+  S.selectedCities=new Set([...S.stationMap.values()].map(v=>v.city));
+  S.selectedStations=new Set(S.allStations);
+  syncCheckboxes();
+
+  renderAll();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FILTER UI
+// ══════════════════════════════════════════════════════════════════════════════
+function buildCityFilter(){
+  const cities=[...new Set([...S.stationMap.values()].map(v=>v.city))].sort();
+  const el=document.getElementById('cityList');
+  el.innerHTML='';
+  cities.forEach(city=>{
+    const item=document.createElement('div');
+    item.className='filter-item';
+    item.innerHTML=`<input type="checkbox" id="city_${city}" checked onchange="toggleCity('${city}')">
+      <label for="city_${city}">${city}</label>`;
+    el.appendChild(item);
+  });
+}
+
+function buildStationFilter(){
+  const el=document.getElementById('stationList');
+  el.innerHTML='';
+  S.allStations.forEach(code=>{
+    const info=S.stationMap.get(code)||{name:code,city:''};
+    const item=document.createElement('div');
+    item.className='filter-item';
+    item.dataset.name=(info.name||code).toLowerCase();
+    item.dataset.city=(info.city||'').toLowerCase();
+    item.innerHTML=`<input type="checkbox" id="st_${code}" checked onchange="toggleStation('${code}')">
+      <label for="st_${code}">${info.name||code}</label>
+      <span class="city-tag">${info.city||''}</span>`;
+    el.appendChild(item);
+  });
+}
+
+function filterStationList(q){
+  const ql=q.toLowerCase();
+  document.querySelectorAll('#stationList .filter-item').forEach(el=>{
+    el.style.display=(!ql||el.dataset.name.includes(ql)||el.dataset.city.includes(ql))?'':'none';
+  });
+}
+
+function syncCheckboxes(){
+  document.querySelectorAll('#cityList input').forEach(cb=>{
+    cb.checked=S.selectedCities.has(cb.id.replace('city_',''));
+  });
+  document.querySelectorAll('#stationList input').forEach(cb=>{
+    cb.checked=S.selectedStations.has(cb.id.replace('st_',''));
+  });
+}
+
+function toggleCity(city){
+  if(S.selectedCities.has(city)) S.selectedCities.delete(city);
+  else S.selectedCities.add(city);
+  // Auto-sync stations: add/remove all stations of this city
+  S.allStations.forEach(code=>{
+    const info=S.stationMap.get(code);
+    if(info?.city===city){
+      if(S.selectedCities.has(city)) S.selectedStations.add(code);
+      else S.selectedStations.delete(code);
+    }
+  });
+  syncCheckboxes();
+  renderAll();
+}
+
+function toggleStation(code){
+  if(S.selectedStations.has(code)) S.selectedStations.delete(code);
+  else S.selectedStations.add(code);
+  renderAll();
+}
+
+function clearCities(){S.selectedCities.clear();S.selectedStations.clear();syncCheckboxes();renderAll();}
+function selectAllCities(){
+  S.selectedCities=new Set([...S.stationMap.values()].map(v=>v.city));
+  S.selectedStations=new Set(S.allStations);
+  syncCheckboxes();renderAll();
+}
+function clearStations(){S.selectedStations.clear();syncCheckboxes();renderAll();}
+function selectAllStations(){S.selectedStations=new Set(S.allStations);syncCheckboxes();renderAll();}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PEAK MODE
+// ══════════════════════════════════════════════════════════════════════════════
+function setPeakMode(mode){
+  S.peakMode=mode;
+  ['pkTotal','pkPeak','pkOffPeak'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.classList.toggle('on',
+      id==='pkTotal'?mode==='total':id==='pkPeak'?mode==='peak':mode==='offpeak');
+  });
+  renderAll();
+}
+
+document.getElementById('btnApplyPeak').onclick=()=>{
+  S.peakStart=document.getElementById('peakStart').value;
+  S.peakEnd=document.getElementById('peakEnd').value;
+  renderAll();
+};
+
+document.getElementById('btnApplyDate').onclick=()=>{
+  const sv=document.getElementById('startDate').value.trim();
+  const ev=document.getElementById('endDate').value.trim();
+
+  function parseDateInput(s,isEnd){
+    if(!s) return null;
+    let m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if(m) return new Date(+m[1],+m[2]-1,+m[3],isEnd?23:0,isEnd?59:0,isEnd?59:0);
+    m=s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if(m) return new Date(+m[3],+m[2]-1,+m[1],isEnd?23:0,isEnd?59:0,isEnd?59:0);
+    return null;
+  }
+
+  const ns=parseDateInput(sv,false);
+  const ne=parseDateInput(ev,true);
+
+  if(sv&&!ns){alert('Could not parse start date. Use YYYY-MM-DD');return;}
+  if(ev&&!ne){alert('Could not parse end date. Use YYYY-MM-DD');return;}
+
+  // Clamp to data bounds
+  if(S.dataMinDate&&ns&&ns<S.dataMinDate) ns.setTime(S.dataMinDate.getTime());
+  if(S.dataMaxDate&&ne&&ne>S.dataMaxDate) ne.setTime(S.dataMaxDate.getTime());
+
+  S.startDate=ns||S.dataMinDate;
+  S.endDate=ne||S.dataMaxDate;
+  syncSliderFromState();
+  renderAll();
+};
+
+document.getElementById('btnClearDate').onclick=()=>{
+  S.startDate=S.dataMinDate?new Date(S.dataMinDate):null;
+  S.endDate=S.dataMaxDate?new Date(S.dataMaxDate):null;
+  syncSliderFromState();
+  renderAll();
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GET ACTIVE DAYS FOR A STATION (respects date filter)
+// ══════════════════════════════════════════════════════════════════════════════
+// Format a Date as YYYY-MM-DD in LOCAL time (avoids UTC timezone shift)
+function localDateStr(d){
+  const y=d.getFullYear();
+  const m=String(d.getMonth()+1).padStart(2,'0');
+  const day=String(d.getDate()).padStart(2,'0');
+  return y+'-'+m+'-'+day;
+}
+
+function getActiveDays(stationEvents){
+  if(S.startDate&&S.endDate){
+    const days=[];
+    // Clone to avoid mutating S.startDate
+    const d=new Date(S.startDate.getFullYear(),S.startDate.getMonth(),S.startDate.getDate());
+    const end=new Date(S.endDate.getFullYear(),S.endDate.getMonth(),S.endDate.getDate());
+    while(d<=end){
+      days.push(localDateStr(d));
+      d.setDate(d.getDate()+1);
+    }
+    return days;
+  }
+  if(!stationEvents.length) return [];
+  const first=stationEvents[0].ts;
+  const last=stationEvents[stationEvents.length-1].ts;
+  const days=[];
+  const d=new Date(first.getFullYear(),first.getMonth(),first.getDate());
+  const end=new Date(last.getFullYear(),last.getMonth(),last.getDate());
+  while(d<=end){
+    days.push(localDateStr(d));
+    d.setDate(d.getDate()+1);
+  }
+  return days;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// RENDER
+// ══════════════════════════════════════════════════════════════════════════════
+function availColor(pct){
+  if(pct===null||pct<0) return '#9CA3AF';
+  function lerp(c1,c2,t){
+    const h=s=>parseInt(s,16);
+    const[r1,g1,b1]=[h(c1.slice(1,3)),h(c1.slice(3,5)),h(c1.slice(5,7))];
+    const[r2,g2,b2]=[h(c2.slice(1,3)),h(c2.slice(3,5)),h(c2.slice(5,7))];
+    return '#'+[r1+(r2-r1)*t,g1+(g2-g1)*t,b1+(b2-b1)*t].map(v=>Math.round(v).toString(16).padStart(2,'0')).join('');
+  }
+  if(pct<60) return lerp('#991B1B','#DC2626',pct/60);
+  if(pct<70) return lerp('#DC2626','#EA580C',(pct-60)/10);
+  if(pct<80) return lerp('#EA580C','#D97706',(pct-70)/10);
+  if(pct<90) return lerp('#D97706','#65A30D',(pct-80)/10);
+  return lerp('#65A30D','#15803D',(pct-90)/10);
+}
+
+function pctLabel(v){return Math.round(v)+'%';}
+
+
+let computedStationStats=[];
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DATE SLIDER
+// ══════════════════════════════════════════════════════════════════════════════
+function dateToRatio(d){
+  if(!S.dataMinDate||!S.dataMaxDate) return 0;
+  const span=S.dataMaxDate-S.dataMinDate;
+  if(span===0) return 0;
+  return Math.max(0,Math.min(1,(d-S.dataMinDate)/span));
+}
+function ratioToDate(r){
+  if(!S.dataMinDate||!S.dataMaxDate) return null;
+  const ms=S.dataMinDate.getTime()+r*(S.dataMaxDate-S.dataMinDate);
+  const d=new Date(ms);
+  return new Date(d.getFullYear(),d.getMonth(),d.getDate());
+}
+function fmtISO(d){
+  if(!d) return '';
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function fmtShort(d){
+  if(!d) return '—';
+  return d.toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+}
+
+function initDateSlider(){
+  if(!S.dataMinDate||!S.dataMaxDate) return;
+  // Set date input bounds
+  const minISO=fmtISO(S.dataMinDate), maxISO=fmtISO(S.dataMaxDate);
+  const sEl=document.getElementById('startDate');
+  const eEl=document.getElementById('endDate');
+  if(sEl){sEl.min=minISO;sEl.max=maxISO;}
+  if(eEl){eEl.min=minISO;eEl.max=maxISO;}
+  // Labels
+  const lbl1=document.getElementById('sliderMinLabel');
+  const lbl2=document.getElementById('sliderMaxLabel');
+  if(lbl1) lbl1.textContent=fmtShort(S.dataMinDate);
+  if(lbl2) lbl2.textContent=fmtShort(S.dataMaxDate);
+  // Reset thumbs to full range if no date selected
+  if(!S.startDate) S.startDate=new Date(S.dataMinDate);
+  if(!S.endDate)   S.endDate=new Date(S.dataMaxDate);
+  syncSliderFromState();
+}
+
+function syncSliderFromState(){
+  const rS=dateToRatio(S.startDate||S.dataMinDate);
+  const rE=dateToRatio(S.endDate||S.dataMaxDate);
+  const tS=document.getElementById('thumbStart');
+  const tE=document.getElementById('thumbEnd');
+  const fill=document.getElementById('sliderFill');
+  if(tS) tS.style.left=(rS*100)+'%';
+  if(tE) tE.style.left=(rE*100)+'%';
+  if(fill){fill.style.left=(rS*100)+'%';fill.style.width=((rE-rS)*100)+'%';}
+  // Sync text inputs
+  const sEl=document.getElementById('startDate');
+  const eEl=document.getElementById('endDate');
+  if(sEl) sEl.value=fmtISO(S.startDate||S.dataMinDate);
+  if(eEl) eEl.value=fmtISO(S.endDate||S.dataMaxDate);
+}
+
+function sliderDrag(e,thumb){
+  e.preventDefault();
+  const wrap=document.getElementById('dateSliderWrap');
+  function getX(ev){return ev.touches?ev.touches[0].clientX:ev.clientX;}
+  function onMove(ev){
+    const rect=wrap.getBoundingClientRect();
+    const r=Math.max(0,Math.min(1,(getX(ev)-rect.left)/rect.width));
+    const d=ratioToDate(r);
+    if(thumb==='start'){
+      if(S.endDate&&d>=S.endDate) return;
+      S.startDate=d;
+    } else {
+      if(S.startDate&&d<=S.startDate) return;
+      S.endDate=d;
+    }
+    syncSliderFromState();
+  }
+  function onUp(){
+    document.removeEventListener('mousemove',onMove);
+    document.removeEventListener('mouseup',onUp);
+    document.removeEventListener('touchmove',onMove);
+    document.removeEventListener('touchend',onUp);
+    renderAll();
+  }
+  document.addEventListener('mousemove',onMove);
+  document.addEventListener('mouseup',onUp);
+  document.addEventListener('touchmove',onMove,{passive:false});
+  document.addEventListener('touchend',onUp);
+}
+
+function renderAll(){
+  if(!S.rawEvents.size) return;
+  const main=document.getElementById('mainArea');
+
+  // Compute per-station stats for selected stations
+  computedStationStats=[];
+  for(const code of S.selectedStations){
+    const events=S.rawEvents.get(code);
+    if(!events||!events.length) continue;
+    const info=S.stationMap.get(code)||{name:code,city:'Unknown'};
+    const days=getActiveDays(events);
+    if(!days.length) continue;
+    const av=computeStationAvail(events,days,S.peakMode);
+    if(!av) continue;
+    const health=av.green>=80?'Excellent':av.green>=70?'Moderate':'Attention';
+    computedStationStats.push({code,name:info.name,city:info.city,
+      green:av.green,amber:av.amber,red:av.red,grey:av.grey,
+      totalSec:av.totalSec,health,days});
+  }
+
+  // Build aggregate
+  let aggG=0,aggA=0,aggR=0,aggGr=0,aggW=0;
+  for(const s of computedStationStats){
+    aggG+=s.green*s.totalSec; aggA+=s.amber*s.totalSec;
+    aggR+=s.red*s.totalSec;   aggGr+=s.grey*s.totalSec;
+    aggW+=s.totalSec;
+  }
+  const agg=aggW>0?{
+    green:aggG/aggW, amber:aggA/aggW, red:aggR/aggW, grey:aggGr/aggW
+  }:{green:0,amber:0,red:0,grey:0};
+
+  const modeLabel=S.peakMode==='total'?'Total':
+    S.peakMode==='peak'?`Peak (${S.peakStart}–${S.peakEnd})`:`Off-peak`;
+  const dateLabel=S.startDate&&S.endDate?
+    `${S.startDate.toLocaleDateString()}–${S.endDate.toLocaleDateString()}`:'All dates';
+  const dStart=S.startDate||S.dataMinDate;
+  const dEnd=S.endDate||S.dataMaxDate;
+  const rangeLabel=dStart&&dEnd?`${fmtShort(dStart)} – ${fmtShort(dEnd)}`:'All dates';
+
+  // Build HTML structure first, then render charts after DOM is ready
+  main.innerHTML=`
+    <div class="stats-row">
+      ${(([g,a,r,gr])=>`
+      <div class="stat-card"><div class="stat-val green">${g}%</div><div class="stat-lbl">🟢 Green</div></div>
+      <div class="stat-card"><div class="stat-val amber">${a}%</div><div class="stat-lbl">🟡 Amber</div></div>
+      <div class="stat-card"><div class="stat-val red">${r}%</div><div class="stat-lbl">🔴 Red</div></div>
+      <div class="stat-card"><div class="stat-val grey">${gr}%</div><div class="stat-lbl">⚫ Grey</div></div>
+      `)(roundToHundred([agg.green,agg.amber,agg.red,agg.grey]))}
+      <div class="stat-card" style="flex:2">
+        <div class="stat-val" style="font-size:13px;color:#003B49">${computedStationStats.length} stations · ${modeLabel}</div>
+        <div style="font-size:9px;color:var(--muted);margin-top:3px;font-family:var(--mono)">${dateLabel}</div>
+        <div class="avail-key-wrap" style="margin-top:6px">
+          <span style="font-size:8px">0%</span>
+          <div class="avail-key-bar"></div>
+          <span style="font-size:8px">100%</span>
+        </div>
+        <div class="avail-key-labels" style="padding:0 20px">
+          <span style="color:#DC2626;font-size:7px">60</span>
+          <span style="color:#D97706;font-size:7px">70</span>
+          <span style="color:#65A30D;font-size:7px">80</span>
+          <span style="color:#15803D;font-size:7px">90</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-hdr">
+        <div class="chart-title">Network Aggregate — ${modeLabel} · ${rangeLabel}</div>
+        <div class="chart-actions">
+          <button class="dl-btn light" onclick="exportChart('aggChart','zeno_aggregate.png')">PNG</button>
+          <button class="dl-btn dark"  onclick="exportChart('aggChart','zeno_aggregate_hd.png',3)">HD</button>
+        </div>
+      </div>
+      <div class="chart-canvas-wrap" style="height:120px"><canvas id="aggChart"></canvas></div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-hdr">
+        <div class="chart-title" id="perStTitle">Per-Station — ${modeLabel}</div>
+        <div class="chart-actions">
+          <button class="dl-btn light" onclick="exportChart('perStChart','zeno_per_station.png')">PNG</button>
+          <button class="dl-btn dark"  onclick="exportChart('perStChart','zeno_per_station_hd.png',3)">HD</button>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+        <span style="font-size:8px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:1px">Sort by</span>
+        <div class="peak-seg" style="margin-bottom:0;width:auto">
+          <div class="peak-btn ${S.perStSort==='green'?'on':''}" id="psSortG" onclick="setPerStSort('green')" style="padding:4px 10px">Green</div>
+          <div class="peak-btn ${S.perStSort==='amber'?'on':''}" id="psSortA" onclick="setPerStSort('amber')" style="padding:4px 10px">Amber</div>
+          <div class="peak-btn ${S.perStSort==='red'?'on':''}"   id="psSortR" onclick="setPerStSort('red')"   style="padding:4px 10px">Red</div>
+          <div class="peak-btn ${S.perStSort==='grey'?'on':''}"  id="psSortGr" onclick="setPerStSort('grey')" style="padding:4px 10px">Grey</div>
+        </div>
+        <button id="psSortDir" onclick="togglePerStSortDir()" class="dl-btn light" style="font-size:11px;padding:4px 9px;border-radius:5px;border:1px solid var(--border)">${S.perStSortDir==='desc'?'↓ Desc':'↑ Asc'}</button>
+        <span style="font-size:8px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-left:6px">Show</span>
+        <div style="display:flex;gap:4px">
+          <button id="psTogG"  onclick="togglePerStColor('green')" class="dl-btn" style="background:${S.perStColors.has('green')?'#16A34A':'#E2E8F0'};color:${S.perStColors.has('green')?'#fff':'#9CA3AF'};border:1px solid ${S.perStColors.has('green')?'#16A34A':'#CBD5E1'}">Green</button>
+          <button id="psTogA"  onclick="togglePerStColor('amber')" class="dl-btn" style="background:${S.perStColors.has('amber')?'#D97706':'#E2E8F0'};color:${S.perStColors.has('amber')?'#fff':'#9CA3AF'};border:1px solid ${S.perStColors.has('amber')?'#D97706':'#CBD5E1'}">Amber</button>
+          <button id="psTogR"  onclick="togglePerStColor('red')"   class="dl-btn" style="background:${S.perStColors.has('red')?'#DC2626':'#E2E8F0'};color:${S.perStColors.has('red')?'#fff':'#9CA3AF'};border:1px solid ${S.perStColors.has('red')?'#DC2626':'#CBD5E1'}">Red</button>
+          <button id="psTogGr" onclick="togglePerStColor('grey')"  class="dl-btn" style="background:${S.perStColors.has('grey')?'#6B7280':'#E2E8F0'};color:${S.perStColors.has('grey')?'#fff':'#9CA3AF'};border:1px solid ${S.perStColors.has('grey')?'#6B7280':'#CBD5E1'}">Grey</button>
+        </div>
+      </div>
+      <div class="chart-canvas-wrap" style="height:${Math.max(220,computedStationStats.length*26)}px">
+        <canvas id="perStChart"></canvas>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-hdr">
+        <div class="chart-title" id="histTitle">Hourly Profile</div>
+        <div class="chart-actions">
+          <div class="tab-row" style="margin-bottom:0">
+            <div class="tab-btn ${S.histMode==='hourly'?'on':''}"   id="tabH" onclick="setHistMode('hourly')">Hourly</div>
+            <div class="tab-btn ${S.histMode==='daily'?'on':''}"    id="tabD" onclick="setHistMode('daily')">Daily</div>
+            <div class="tab-btn ${S.histMode==='weekly'?'on':''}"   id="tabW" onclick="setHistMode('weekly')">Weekly</div>
+            <div class="tab-btn ${S.histMode==='monthly'?'on':''}"  id="tabM" onclick="setHistMode('monthly')">Monthly</div>
+          </div>
+          <button class="dl-btn light" onclick="exportChart('histChart','zeno_histogram.png')">PNG</button>
+          <button class="dl-btn dark"  onclick="exportChart('histChart','zeno_histogram_hd.png',3)">HD</button>
+        </div>
+      </div>
+      <div class="chart-canvas-wrap" id="histChartWrap" style="height:280px"><canvas id="histChart"></canvas></div>
+    </div>
+
+    <div class="tbl-wrap">
+      <div class="tbl-actions">
+        <button class="dl-btn dark" onclick="exportTableCSV()">Export CSV</button>
+        <span style="font-family:var(--mono);font-size:8px;color:var(--muted);margin-left:auto">Click headers to sort</span>
+      </div>
+      <table class="stn-table">
+        <thead><tr id="stHead"></tr></thead>
+        <tbody id="stBody"></tbody>
+      </table>
+    </div>
+  `;
+
+  // Wait one tick for DOM to update before drawing charts
+  requestAnimationFrame(()=>{
+    renderAggChart(agg);
+    renderPerStationChart();
+    renderHistogram();
+    renderTable();
+  });
+}
+
+function renderAggChart(agg){
+  const canvas=document.getElementById('aggChart');
+  if(!canvas){console.error('aggChart canvas not found');return;}
+  const existing=Chart.getChart(canvas); if(existing) existing.destroy();
+  new Chart(canvas,{
+    type:'bar',
+    data:{
+      labels:['Network Average'],
+      datasets:[
+        {label:'Green', data:[Math.round(agg.green*10)/10], backgroundColor:'#16A34A', stack:'s', borderWidth:0},
+        {label:'Amber', data:[Math.round(agg.amber*10)/10], backgroundColor:'#D97706', stack:'s', borderWidth:0},
+        {label:'Red',   data:[Math.round(agg.red*10)/10],   backgroundColor:'#DC2626', stack:'s', borderWidth:0},
+        {label:'Grey',  data:[Math.round(agg.grey*10)/10],  backgroundColor:'#9CA3AF', stack:'s', borderWidth:0},
+      ]
+    },
+    options:{
+      indexAxis:'y',
+      responsive:true,
+      maintainAspectRatio:false,
+      scales:{
+        x:{stacked:true, max:100, ticks:{callback:v=>v+'%', font:{size:11}},
+           title:{display:true, text:'Availability %', font:{size:10}}},
+        y:{stacked:true, ticks:{font:{size:11}, color:'#1a2332'}}
+      },
+      plugins:{
+        legend:{position:'bottom', labels:{font:{size:11}, usePointStyle:true, padding:14}},
+        tooltip:{callbacks:{label:ctx=>` ${ctx.dataset.label}: ${ctx.parsed.x.toFixed(1)}%`}},
+        datalabels:{
+          color:'#ffffff',
+          font:{size:13, weight:'bold'},
+          formatter:(v)=>v>4?Math.round(v)+'%':'',
+          anchor:'center', align:'center',
+        }
+      }
+    }
+  });
+}
+
+// Largest-remainder rounding: ensures values sum to exactly 100
+function roundToHundred(vals){
+  const total=vals.reduce((a,b)=>a+b,0);
+  if(total===0) return vals.map(()=>0);
+  // Scale to 100 first if not already
+  const scaled=total===100?vals:vals.map(v=>v/total*100);
+  const floored=scaled.map(v=>Math.floor(v));
+  const remainders=scaled.map((v,i)=>({i,r:v-floored[i]}));
+  const deficit=100-floored.reduce((a,b)=>a+b,0);
+  remainders.sort((a,b)=>b.r-a.r);
+  for(let k=0;k<deficit;k++) floored[remainders[k].i]++;
+  return floored;
+}
+
+function setPerStSort(col){
+  if(S.perStSort===col){
+    S.perStSortDir=S.perStSortDir==='desc'?'asc':'desc';
+  } else {
+    S.perStSort=col;
+    S.perStSortDir='desc';
+  }
+  renderPerStationChart();
+}
+
+function togglePerStSortDir(){
+  S.perStSortDir=S.perStSortDir==='desc'?'asc':'desc';
+  renderPerStationChart();
+}
+
+function togglePerStColor(col){
+  if(S.perStColors.has(col)){
+    if(S.perStColors.size===1) return; // keep at least one
+    S.perStColors.delete(col);
+  } else {
+    S.perStColors.add(col);
+  }
+  renderPerStationChart();
+}
+
+function renderPerStationChart(){
+  const canvas=document.getElementById('perStChart');
+  if(!canvas){console.error('perStChart canvas not found');return;}
+  const existing=Chart.getChart(canvas); if(existing) existing.destroy();
+  if(!computedStationStats.length) return;
+
+  // Sort: round to 2dp first to eliminate float noise (e.g. 0.0000001 vs 0)
+  // Chart.js horizontal bars render first array item at TOP, so:
+  //   desc (highest at top) → sort ascending in array (lowest first → drawn at bottom)
+  //   asc  (lowest at top)  → sort descending in array (highest first → drawn at bottom)
+  const dirMult=S.perStSortDir==='desc'?1:-1;
+  const sorted=[...computedStationStats].sort((a,b)=>{
+    const av=Math.round(a[S.perStSort]*100)/100;
+    const bv=Math.round(b[S.perStSort]*100)/100;
+    return dirMult*(av-bv); // desc→ b-a puts highest last → top of chart
+  });
+
+  // Update title
+  const sortLabel=S.perStSort.charAt(0).toUpperCase()+S.perStSort.slice(1);
+  const dirLabel=S.perStSortDir==='desc'?'↓':'↑';
+  const titleEl=document.getElementById('perStTitle');
+  if(titleEl){
+    const modeLabel=S.peakMode==='total'?'Total':S.peakMode==='peak'?`Peak (${S.peakStart}–${S.peakEnd})`:'Off-peak';
+    const dStart=S.startDate||S.dataMinDate;
+    const dEnd=S.endDate||S.dataMaxDate;
+    const rangeLabel=dStart&&dEnd?` · ${fmtShort(dStart)} – ${fmtShort(dEnd)}`:'';
+    titleEl.textContent=`Per-Station — ${modeLabel} (${dirLabel} ${sortLabel} %)${rangeLabel}`;
+  }
+
+  // Update sort button states
+  ['green','amber','red','grey'].forEach(c=>{
+    const idMap={green:'psSortG',amber:'psSortA',red:'psSortR',grey:'psSortGr'};
+    document.getElementById(idMap[c])?.classList.toggle('on',S.perStSort===c);
+  });
+
+  // Update asc/desc button
+  const dirBtn=document.getElementById('psSortDir');
+  if(dirBtn) dirBtn.textContent=S.perStSortDir==='desc'?'↓ Desc':'↑ Asc';
+
+  // Update toggle button states
+  const colorDefs={green:{id:'psTogG',on:'#16A34A'},amber:{id:'psTogA',on:'#D97706'},red:{id:'psTogR',on:'#DC2626'},grey:{id:'psTogGr',on:'#6B7280'}};
+  Object.entries(colorDefs).forEach(([c,d])=>{
+    const btn=document.getElementById(d.id); if(!btn) return;
+    const active=S.perStColors.has(c);
+    btn.style.background=active?d.on:'#E2E8F0';
+    btn.style.color=active?'#fff':'#9CA3AF';
+    btn.style.borderColor=active?d.on:'#CBD5E1';
+  });
+
+  const activeColors=['green','amber','red','grey'].filter(c=>S.perStColors.has(c));
+  const colorConfig={
+    green:{label:'Green',bg:'#16A34A'},
+    amber:{label:'Amber',bg:'#D97706'},
+    red:{label:'Red',bg:'#DC2626'},
+    grey:{label:'Grey',bg:'#9CA3AF'},
+  };
+
+  // Only keep stations that have at least some value in the visible colours
+  const filtered=sorted.filter(s=>activeColors.some(c=>s[c]>0));
+
+  // Update canvas height to match filtered station count
+  const wrap=canvas.parentElement;
+  if(wrap) wrap.style.height=Math.max(220,filtered.length*26)+'px';
+
+  const labels=filtered.map(s=>{const n=s.name||s.code; return n.length>26?n.slice(0,26)+'…':n;});
+
+  // Per station: use ALL-colour rounded values (green+amber+red+grey always = 100)
+  // Hidden colours simply have no dataset — bars show original proportions, never renormalise
+  const allColors=['green','amber','red','grey'];
+  const perStationRounded=filtered.map(s=>{
+    const allVals=allColors.map(c=>s[c]);
+    const rounded=roundToHundred(allVals);
+    const out={};
+    allColors.forEach((c,i)=>{ out[c]=rounded[i]; });
+    return out;
+  });
+
+  const datasets=activeColors.map(c=>({
+    label:colorConfig[c].label,
+    data:perStationRounded.map(r=>r[c]),
+    backgroundColor:colorConfig[c].bg,
+    stack:'s',
+    borderWidth:0,
+  }));
+
+  new Chart(canvas,{
+    type:'bar',
+    data:{labels,datasets},
+    options:{
+      indexAxis:'y',
+      responsive:true,
+      maintainAspectRatio:false,
+      scales:{
+        x:{stacked:true, max:100, ticks:{callback:v=>v+'%', font:{size:8}},
+           title:{display:true, text:'Availability %', font:{size:9}}},
+        y:{stacked:true, ticks:{font:{size:8}, color:'#1a2332'}}
+      },
+      plugins:{
+        legend:{position:'bottom', labels:{font:{size:10}, usePointStyle:true, padding:12}},
+        tooltip:{callbacks:{label:ctx=>` ${ctx.dataset.label}: ${ctx.parsed.x.toFixed(1)}%`}},
+        datalabels:{
+          color:'#ffffff',
+          font:{size:8, weight:'bold'},
+          formatter:(v)=>v>6?v+'%':'',
+          anchor:'center', align:'center',
+        }
+      }
+    }
+  });
+}
+
+function renderHistogram(){
+  const canvas=document.getElementById('histChart'); if(!canvas) return;
+  const existing=Chart.getChart(canvas); if(existing) existing.destroy();
+  const title=document.getElementById('histTitle');
+  if(!computedStationStats.length) return;
+
+  const _dS=S.startDate||S.dataMinDate;
+  const _dE=S.endDate||S.dataMaxDate;
+  const histRangeLabel=_dS&&_dE?` · ${fmtShort(_dS)} – ${fmtShort(_dE)}`:'';
+
+  // Shared chart options builder — NO shared object, returns fresh config each time
+  function chartOpts(xLabel, extraX, extraY){
+    return {
+      responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{position:'bottom',labels:{font:{size:9,family:'monospace'},padding:12,usePointStyle:true}},
+        tooltip:{callbacks:{label:ctx=>` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%`}},
+        datalabels:{color:'#fff',font:{size:8,weight:'bold'},formatter:v=>v>6?Math.round(v)+'%':'',anchor:'center',align:'center'},
+      },
+      scales:{
+        x:{stacked:true,grid:{color:'rgba(0,0,0,.04)'},
+          ticks:{font:{size:8},color:'#6B7280',maxRotation:45,...(extraX||{})},
+          title:{display:!!xLabel,text:xLabel||'',font:{size:9},color:'#6B7280'}},
+        y:{stacked:true,max:100,grid:{color:'rgba(0,0,0,.04)'},
+          ticks:{font:{size:8},color:'#6B7280',callback:v=>v+'%'},
+          title:{display:true,text:'Availability %',font:{size:9},color:'#6B7280'},
+          ...(extraY||{})},
+      },
+    };
+  }
+
+  function mkDatasets(gD,aD,rD,grD){
+    return [
+      {label:'Green',data:gD,backgroundColor:'#16A34A',stack:'s',borderWidth:0},
+      {label:'Amber',data:aD,backgroundColor:'#D97706',stack:'s',borderWidth:0},
+      {label:'Red',  data:rD,backgroundColor:'#DC2626',stack:'s',borderWidth:0},
+      {label:'Grey', data:grD,backgroundColor:'#9CA3AF',stack:'s',borderWidth:0},
+    ];
+  }
+
+  // ── HOURLY ────────────────────────────────────────────────────────────────
+  if(S.histMode==='hourly'){
+    // In peak/offpeak mode: only show bars for the relevant hours
+    const peakLabel=S.peakMode==='total'?'':' · '+(S.peakMode==='peak'?'Peak ('+S.peakStart+'–'+S.peakEnd+')':'Off-peak ('+S.peakStart+'–'+S.peakEnd+')');
+    if(title) title.textContent='Hourly Availability Profile'+peakLabel+histRangeLabel;
+    document.getElementById('histChartWrap').style.height='280px';
+
+    const aggG=new Array(24).fill(0),aggA=new Array(24).fill(0);
+    const aggR=new Array(24).fill(0),aggGr=new Array(24).fill(0);
+    const cnt=new Array(24).fill(0);
+    for(const s of computedStationStats){
+      const events=S.rawEvents.get(s.code); if(!events) continue;
+      const prof=computeHourlyProfiles(events,s.days);
+      for(let h=0;h<24;h++){
+        const tot=prof.green[h]+prof.amber[h]+prof.red[h]+prof.grey[h];
+        if(tot>0){aggG[h]+=prof.green[h];aggA[h]+=prof.amber[h];aggR[h]+=prof.red[h];aggGr[h]+=prof.grey[h];cnt[h]++;}
+      }
+    }
+
+    const {peakH,offH}=getPeakHours();
+    // Filter bars to only show relevant hours for peak/offpeak
+    const activeHours=S.peakMode==='total'
+      ?[...Array(24).keys()]
+      :S.peakMode==='peak'?[...peakH].sort((a,b)=>a-b):[...offH].sort((a,b)=>a-b);
+
+    const labels=[],gD=[],aD=[],rD=[],grD=[];
+    for(const h of activeHours){
+      labels.push(String(h).padStart(2,'0')+':00');
+      if(cnt[h]>0){
+        const g=aggG[h]/cnt[h],a=aggA[h]/cnt[h],r=aggR[h]/cnt[h],gr=aggGr[h]/cnt[h],tot=g+a+r+gr||1;
+        gD.push(g/tot*100);aD.push(a/tot*100);rD.push(r/tot*100);grD.push(gr/tot*100);
+      } else {gD.push(0);aD.push(0);rD.push(0);grD.push(0);}
+    }
+    const opts=chartOpts();
+    opts.plugins.datalabels.display=ctx=>ctx.datasetIndex===0&&gD[ctx.dataIndex]>5;
+    opts.plugins.datalabels.formatter=(_,ctx)=>gD[ctx.dataIndex]>5?Math.round(gD[ctx.dataIndex])+'%':'';
+    new Chart(canvas,{type:'bar',data:{labels,datasets:mkDatasets(gD,aD,rD,grD)},options:opts});
+
+  // ── DAILY ─────────────────────────────────────────────────────────────────
+  } else if(S.histMode==='daily'){
+    const peakLabel=S.peakMode==='total'?'':' · '+(S.peakMode==='peak'?'Peak':'Off-peak');
+    if(title) title.textContent='Daily Availability Profile'+peakLabel+histRangeLabel;
+    const allDays=new Set();
+    for(const s of computedStationStats) s.days.forEach(d=>allDays.add(d));
+    const days=[...allDays].sort();
+    document.getElementById('histChartWrap').style.height=Math.max(280,days.length*18)+'px';
+
+    const labels=[],gD=[],aD=[],rD=[],grD=[];
+    for(const day of days){
+      const[yr,mo,dy]=day.split('-').map(Number);
+      const dt=new Date(yr,mo-1,dy,12,0,0);
+      labels.push(['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][dt.getDay()===0?6:dt.getDay()-1]+' '+dy+'/'+(mo));
+      let sG=0,sA=0,sR=0,sGr=0,cnt=0;
+      for(const s of computedStationStats){
+        const events=S.rawEvents.get(s.code); if(!events) continue;
+        // computeStationAvail applies peakMode correctly (total/peak/offpeak)
+        const av=computeStationAvail(events,[day],S.peakMode);
+        if(av){sG+=av.green;sA+=av.amber;sR+=av.red;sGr+=av.grey;cnt++;}
+      }
+      if(cnt>0){
+        const g=sG/cnt,a=sA/cnt,r=sR/cnt,gr=sGr/cnt,tot=g+a+r+gr||1;
+        gD.push(g/tot*100);aD.push(a/tot*100);rD.push(r/tot*100);grD.push(gr/tot*100);
+      } else {gD.push(0);aD.push(0);rD.push(0);grD.push(0);}
+    }
+    const opts=chartOpts();
+    opts.plugins.datalabels.display=ctx=>ctx.datasetIndex===0&&gD[ctx.dataIndex]>8;
+    opts.plugins.datalabels.formatter=(_,ctx)=>gD[ctx.dataIndex]>8?Math.round(gD[ctx.dataIndex])+'%':'';
+    new Chart(canvas,{type:'bar',data:{labels,datasets:mkDatasets(gD,aD,rD,grD)},options:opts});
+
+  // ── WEEKLY ────────────────────────────────────────────────────────────────
+  } else if(S.histMode==='weekly'){
+    const peakLabel=S.peakMode==='total'?'':' · '+(S.peakMode==='peak'?'Peak':'Off-peak');
+    if(title) title.textContent='Weekly Availability Profile'+peakLabel+histRangeLabel;
+
+    const allDays=new Set();
+    for(const s of computedStationStats) s.days.forEach(d=>allDays.add(d));
+    const days=[...allDays].sort();
+
+    function getISOWeekKey(dateStr){
+      const[yr,mo,dy]=dateStr.split('-').map(Number);
+      const d=new Date(yr,mo-1,dy,12,0,0);
+      const thursday=new Date(d);
+      thursday.setDate(d.getDate()-(d.getDay()+6)%7+3);
+      const jan4=new Date(thursday.getFullYear(),0,4);
+      const week=1+Math.round((thursday-jan4)/604800000);
+      return thursday.getFullYear()+'-W'+String(week).padStart(2,'0');
+    }
+
+    const weekMap=new Map();
+    for(const day of days){
+      const wk=getISOWeekKey(day);
+      if(!weekMap.has(wk)) weekMap.set(wk,[]);
+      weekMap.get(wk).push(day);
+    }
+    const weekKeys=[...weekMap.keys()].sort();
+    document.getElementById('histChartWrap').style.height=Math.max(280,weekKeys.length*22)+'px';
+
+    const labels=[],gD=[],aD=[],rD=[],grD=[];
+    for(const wk of weekKeys){
+      const wDays=weekMap.get(wk);
+      const[yr,mo,dy]=wDays[0].split('-').map(Number);
+      const mon=new Date(yr,mo-1,dy,12,0,0);
+      const mths=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      labels.push(wk.slice(5)+' '+mths[mon.getMonth()]+' '+String(yr).slice(2));
+
+      let sG=0,sA=0,sR=0,sGr=0,cnt=0;
+      for(const s of computedStationStats){
+        const events=S.rawEvents.get(s.code); if(!events) continue;
+        // Pass full week's days — computeStationAvail handles peak internally
+        const av=computeStationAvail(events,wDays,S.peakMode);
+        if(av){sG+=av.green;sA+=av.amber;sR+=av.red;sGr+=av.grey;cnt++;}
+      }
+      if(cnt>0){
+        const g=sG/cnt,a=sA/cnt,r=sR/cnt,gr=sGr/cnt,tot=g+a+r+gr||1;
+        gD.push(g/tot*100);aD.push(a/tot*100);rD.push(r/tot*100);grD.push(gr/tot*100);
+      } else {gD.push(0);aD.push(0);rD.push(0);grD.push(0);}
+    }
+    const opts=chartOpts();
+    opts.plugins.datalabels.display=ctx=>ctx.datasetIndex===0&&gD[ctx.dataIndex]>6;
+    opts.plugins.datalabels.formatter=(_,ctx)=>gD[ctx.dataIndex]>6?Math.round(gD[ctx.dataIndex])+'%':'';
+    new Chart(canvas,{type:'bar',data:{labels,datasets:mkDatasets(gD,aD,rD,grD)},options:opts});
+
+  // ── MONTHLY ───────────────────────────────────────────────────────────────
+  } else if(S.histMode==='monthly'){
+    const peakLabel=S.peakMode==='total'?'':' · '+(S.peakMode==='peak'?'Peak':'Off-peak');
+    if(title) title.textContent='Monthly Availability Profile'+peakLabel+histRangeLabel;
+
+    const allDays=new Set();
+    for(const s of computedStationStats) s.days.forEach(d=>allDays.add(d));
+    const days=[...allDays].sort();
+
+    const monthMap=new Map();
+    for(const day of days){
+      const mk=day.slice(0,7);
+      if(!monthMap.has(mk)) monthMap.set(mk,[]);
+      monthMap.get(mk).push(day);
+    }
+    const monthKeys=[...monthMap.keys()].sort();
+    document.getElementById('histChartWrap').style.height=Math.max(280,monthKeys.length*28)+'px';
+
+    const mthNames=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const labels=[],gD=[],aD=[],rD=[],grD=[];
+    for(const mk of monthKeys){
+      const[yr,mo]=mk.split('-').map(Number);
+      labels.push(mthNames[mo-1]+' '+yr);
+
+      let sG=0,sA=0,sR=0,sGr=0,cnt=0;
+      for(const s of computedStationStats){
+        const events=S.rawEvents.get(s.code); if(!events) continue;
+        // Pass all days in month — computeStationAvail handles peak internally
+        const av=computeStationAvail(events,monthMap.get(mk),S.peakMode);
+        if(av){sG+=av.green;sA+=av.amber;sR+=av.red;sGr+=av.grey;cnt++;}
+      }
+      if(cnt>0){
+        const g=sG/cnt,a=sA/cnt,r=sR/cnt,gr=sGr/cnt,tot=g+a+r+gr||1;
+        gD.push(g/tot*100);aD.push(a/tot*100);rD.push(r/tot*100);grD.push(gr/tot*100);
+      } else {gD.push(0);aD.push(0);rD.push(0);grD.push(0);}
+    }
+    const opts=chartOpts();
+    opts.plugins.datalabels.display=ctx=>ctx.datasetIndex===0&&gD[ctx.dataIndex]>4;
+    opts.plugins.datalabels.formatter=(_,ctx)=>gD[ctx.dataIndex]>4?Math.round(gD[ctx.dataIndex])+'%':'';
+    new Chart(canvas,{type:'bar',data:{labels,datasets:mkDatasets(gD,aD,rD,grD)},options:opts});
+  }
+}
+
+
+function setHistMode(mode){
+  S.histMode=mode;
+  ['H','D','W','M'].forEach(k=>{
+    const id='tab'+k;
+    const modeMap={H:'hourly',D:'daily',W:'weekly',M:'monthly'};
+    document.getElementById(id)?.classList.toggle('on',modeMap[k]===mode);
+  });
+  renderHistogram();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TABLE
+// ══════════════════════════════════════════════════════════════════════════════
+const COLS=[
+  {k:'name',    l:'Station',  align:'left'},
+  {k:'city',    l:'City',     align:'left'},
+  {k:'green',   l:'Green %',  align:'right'},
+  {k:'amber',   l:'Amber %',  align:'right'},
+  {k:'red',     l:'Red %',    align:'right'},
+  {k:'grey',    l:'Grey %',   align:'right'},
+  {k:'health',  l:'Health',   align:'center'},
+];
+
+function renderTable(){
+  const head=document.getElementById('stHead'); if(!head) return;
+  head.innerHTML=COLS.map(c=>`<th data-k="${c.k}" onclick="sortTable('${c.k}')"
+    class="${S.sortCol===c.k?'sorted':''}">${c.l}
+    <span class="sort-arrow">${S.sortCol===c.k?(S.sortDir===-1?'↓':'↑'):''}</span>
+  </th>`).join('');
+
+  const sorted=[...computedStationStats].sort((a,b)=>{
+    const av=a[S.sortCol],bv=b[S.sortCol];
+    if(typeof av==='string') return S.sortDir*(av<bv?-1:av>bv?1:0);
+    return S.sortDir*(av-bv);
+  });
+
+  const body=document.getElementById('stBody'); if(!body) return;
+  body.innerHTML=sorted.map(s=>`<tr>
+    <td><strong>${s.code}</strong><br><span style="font-size:8px;color:var(--muted)">${s.name}</span></td>
+    <td>${s.city}</td>
+    <td style="font-weight:700;color:${availColor(s.green)}">${s.green.toFixed(1)}%</td>
+    <td style="color:var(--amber);font-weight:700">${s.amber.toFixed(1)}%</td>
+    <td style="color:var(--red);font-weight:700">${s.red.toFixed(1)}%</td>
+    <td style="color:var(--grey)">${s.grey.toFixed(1)}%</td>
+    <td style="text-align:center" class="health-${s.health.slice(0,2).toLowerCase()}">${s.health}</td>
+  </tr>`).join('');
+}
+
+function sortTable(col){
+  if(S.sortCol===col) S.sortDir*=-1;
+  else{S.sortCol=col;S.sortDir=-1;}
+  renderTable();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// EXPORT
+// ══════════════════════════════════════════════════════════════════════════════
+function exportChart(canvasId, filename, scale=2){
+  const canvas=document.getElementById(canvasId); if(!canvas) return;
+  const inst=Chart.getChart(canvas); if(!inst) return;
+
+  // Find the chart title from the closest .chart-hdr above the canvas
+  const card=canvas.closest('.chart-card');
+  const titleEl=card?card.querySelector('.chart-title'):null;
+  const titleText=titleEl?titleEl.textContent.trim():'Zeno Availability';
+
+  const src=inst.toBase64Image('image/png',1);
+  const img=new Image();
+  img.onload=()=>{
+    const W=img.width*scale;
+    const headerH=Math.round(36*scale); // space for title text
+    const H=img.height*scale+headerH;
+
+    const tmp=document.createElement('canvas');
+    tmp.width=W; tmp.height=H;
+    const ctx=tmp.getContext('2d');
+
+    // Background
+    ctx.fillStyle='#ffffff';
+    ctx.fillRect(0,0,W,H);
+
+    // Header bar
+    ctx.fillStyle='#003B49';
+    ctx.fillRect(0,0,W,headerH);
+
+    // Title text
+    const fontSize=Math.round(11*scale);
+    ctx.fillStyle='#ffffff';
+    ctx.font=`600 ${fontSize}px "Inter Tight", Inter, sans-serif`;
+    ctx.textBaseline='middle';
+    ctx.fillText(titleText, Math.round(12*scale), headerH/2);
+
+    // Chart content
+    ctx.drawImage(img,0,headerH,W,img.height*scale);
+
+    const a=document.createElement('a');
+    a.href=tmp.toDataURL('image/png',1);
+    a.download=filename;
+    a.click();
+  };
+  img.src=src;
+}
+
+function exportTableCSV(){
+  const hdrs=COLS.map(c=>c.l);
+  const rows=computedStationStats.map(s=>[s.code,s.name,s.city,
+    s.green.toFixed(1),s.amber.toFixed(1),s.red.toFixed(1),s.grey.toFixed(1),s.health]);
+  const csv=[hdrs,...rows].map(r=>r.map(v=>`"${v}"`).join(',')).join('\n');
+  const a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+  a.download='zeno_availability.csv'; a.click();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════════════════════════════
+document.getElementById('btnAnalyze').onclick=()=>{
+  if(!loadedState||!loadedMaster) return;
+  processFiles();
+};
+</script>
+</body>
+</html>
